@@ -17,13 +17,16 @@ Bot Permissions:
     - Administrator (0x8)
 """
 
+
 class BotCommands(commands.Cog):
     def __init__(self, bot: commands.Bot, config):
         self.bot = bot
         self.config = config
         self.reset()
         self.command_channel = None
-        self.timer_task.change_interval(seconds=self.config["bitrate_reduction_interval"])
+        self.timer_task.change_interval(
+            seconds=self.config["bitrate_reduction_interval"]
+        )
 
     def reset(self):
         self.armed = False
@@ -115,6 +118,16 @@ class BotCommands(commands.Cog):
     async def enable(self, ctx: commands.Context, *, username: str):
         if not self.check_command_channel(ctx):
             return
+
+        if self.armed:
+            await self.send_message(
+                self.command_channel,
+                "Already armed for user "
+                + str(self.target)
+                + ". Run disarm command first",
+            )
+            return
+
         if self.timer_task.is_running():
             self.timer_task.cancel()
         # Find user id
@@ -143,7 +156,7 @@ class BotCommands(commands.Cog):
         if not self.check_command_channel(ctx):
             return
 
-        if self.timer_task.is_running():
+        if self.armed and self.timer_task.is_running():
             self.timer_task.cancel()
             await self.channel.edit(bitrate=self.original_bitrate)
             await self.send_message(
@@ -208,7 +221,9 @@ class BotCommands(commands.Cog):
             return
         self.config = load_config("config.json")
         # self.timer_task.seconds?? = self.config["bitrate_reduction_interval"]
-        self.timer_task.change_interval(seconds=self.config["bitrate_reduction_interval"])
+        self.timer_task.change_interval(
+            seconds=self.config["bitrate_reduction_interval"]
+        )
         await self.send_message(self.command_channel, "Reloaded configuration")
 
     @tasks.loop()
