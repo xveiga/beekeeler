@@ -1,0 +1,12 @@
+#######################################################################
+## Copy this default config too config.json, then fill in the fields ##
+##                      Then DELETE THIS LINES                       ##
+#######################################################################
+{
+    "command_prefix": "$",
+    "token":"YOUR_TOKEN_HERE",
+    "control_channel_name": "CHANNEL_NAME_THAT_ACCEPTS_BOT_COMMANDS",
+    "bitrate_reduction_amount": 2000,
+    "bitrate_reduction_interval": 2,
+    "min_bitrate": 8000
+}
