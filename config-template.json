@@ -1,0 +1,7 @@
+{
+    "command_prefix": "$",
+    "token":"YOUR_TOKEN_HERE",
+    "control_channel_name": "CHANNEL_NAME_THAT_ACCEPTS_BOT_COMMANDS",
+    "bitrate_reduction_amount": 2000,
+    "min_bitrate": 8000
+}
