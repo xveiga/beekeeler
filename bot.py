@@ -26,6 +26,7 @@ class BotCommands(commands.Cog):
         self.config = config
         self.reset()
         self.command_channel = None
+        self.timer_task.change_interval(seconds=self.config["bitrate_reduction_interval"])
 
     def reset(self):
         self.armed = False
@@ -210,9 +211,10 @@ class BotCommands(commands.Cog):
             return
         self.config = load_config("config.json")
         # self.timer_task.seconds?? = self.config["bitrate_reduction_interval"]
+        self.timer_task.change_interval(seconds=self.config["bitrate_reduction_interval"])
         await self.send_message(self.command_channel, "Reloaded configuration")
 
-    @tasks.loop(seconds=2)
+    @tasks.loop()
     async def timer_task(self):
         if not self.armed:
             self.timer_task.cancel()
