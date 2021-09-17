@@ -1,7 +1,7 @@
-#######################################################################
-## Copy this default config too config.json, then fill in the fields ##
-##                      Then DELETE THIS LINES                       ##
-#######################################################################
+######################################################################
+## Copy this default config to config.json, then fill in the fields ##
+##                      Then DELETE THIS LINES                      ##
+######################################################################
 {
     "command_prefix": "$",
     "token":"YOUR_TOKEN_HERE",
