@@ -69,7 +69,7 @@ class BotCommands(commands.Cog):
             return
 
         # If username is blacklisted
-        print(member.name + "#" + member.discriminator)
+        # print(member.name + "#" + member.discriminator)
         if member.id == self.target.id:
             if not before.channel and after.channel:
                 # If user just joined a channel, activate for current channel
