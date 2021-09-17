@@ -7,6 +7,8 @@ from discord.ext import commands, tasks
 """
 Discord bitrate reduction prank bot
 
+Requires privileged intents (Server Members Intent enabled on bot page in developer portal)
+
 Invite link (OAuth2 Tab on developer portal):
 https://discord.com/oauth2/authorize?client_id=887070716883787806&permissions=2064&scope=bot
 
@@ -277,7 +279,11 @@ def save_config(config_file, config_dict):
 
 def main(config_file):
     # Load config file
-    config = load_config(config_file)
+    try:
+        config = load_config(config_file)
+    except Exception as e:
+        print("Unable to read config file " + config_file + ": " + str(e))
+        raise SystemExit
 
     # Enable intents for user list fetching
     intents = Intents.default()
