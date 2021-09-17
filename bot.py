@@ -8,18 +8,13 @@ from discord.ext import commands, tasks
 Discord bitrate reduction prank bot
 
 Requires privileged intents (Server Members Intent enabled on bot page in developer portal)
-
-Invite link (OAuth2 Tab on developer portal):
-https://discord.com/oauth2/authorize?client_id=887070716883787806&permissions=2064&scope=bot
+https://discordapi.com/permissions.html#8
 
 Scopes:
     - Bot
 
 Bot Permissions:
-    General:
-    - Manage Channels
-    Text:
-    - Send Messages
+    - Administrator (0x8)
 """
 
 class BotCommands(commands.Cog):
