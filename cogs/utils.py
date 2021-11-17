@@ -2,6 +2,11 @@ def check_admin(bot, ctx):
     return ctx.author.id in bot.config["admin_ids"]
 
 
+async def check_cc(bot, ctx):
+    cc = await bot.db.get_guild_cc(ctx.guild.id)
+    return cc == ctx.channel.id
+
+
 async def send_message(logger, channel, string, before="", after="", *args, **kwargs):
     logger.debug(string)
     return await channel.send(before + string + after, *args, **kwargs)

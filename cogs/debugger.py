@@ -17,6 +17,8 @@ class CodeEvaluator(commands.Cog):
 
     @commands.command(name="latency")
     async def latency(self, ctx: commands.Context):
+        if not await utils.check_cc(self.bot, ctx):
+            return
         latency = f"{round(self.bot.latency * 1000)}ms"
         await utils.send_message(self.logger, ctx, latency)
 

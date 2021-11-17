@@ -22,6 +22,8 @@ class AdminManagement(commands.Cog):
     @commands.command(name="leave")
     @commands.guild_only()
     async def leave(self, ctx: commands.Context):
+        if not await utils.check_cc(self.bot, ctx):
+            return
         await utils.send_message(self.logger, ctx, "Bye!", tts=True)
         await ctx.guild.leave()
         await self.bot.db.remove_guild(ctx.guild.id)
@@ -29,6 +31,8 @@ class AdminManagement(commands.Cog):
     @commands.command(name="prefix")
     @commands.guild_only()
     async def set_prefix(self, ctx: commands.Context, prefix: str):
+        if not await utils.check_cc(self.bot, ctx):
+            return
         # TODO: Possible BUG if the user sets an invalid prefix, the only way to
         # reset it is to kick the bot out of the server and re-add it again
         await utils.send_message(

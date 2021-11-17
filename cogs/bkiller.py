@@ -1,11 +1,10 @@
 import asyncio
 import logging
-from typing import Optional, Text
 
 from discord import Guild, Member, VoiceChannel
 from discord.abc import GuildChannel
 from discord.channel import TextChannel
-from discord.ext import commands, tasks
+from discord.ext import commands
 
 from database.dao.guild import BotGuild
 from database.dao.target import BotTarget
@@ -30,7 +29,7 @@ class BitrateKiller(commands.Cog):
         for c in self.bk_channels:
             c[0].cancel()
 
-    async def fetch_guild_changes(self):
+    async def _fetch_guild_changes(self):
         remote_guilds = await self.bot.fetch_guilds(limit=200).flatten()
         local_guilds = await self.bot.db.get_guilds()
 
@@ -58,8 +57,7 @@ class BitrateKiller(commands.Cog):
             if self.bot.get_channel(g.control_channel) is None:
                 await self.bot.db.set_guild_cc(g.gid, None)
 
-
-    async def fetch_channel_changes(self):
+    async def _fetch_channel_changes(self):
         remote_channels = list(
             filter(lambda c: isinstance(c, VoiceChannel), self.bot.get_all_channels())
         )
@@ -87,8 +85,8 @@ class BitrateKiller(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self):
-        await self.fetch_guild_changes()
-        await self.fetch_channel_changes()
+        await self._fetch_guild_changes()
+        await self._fetch_channel_changes()
         # TODO: Restore bkill tasks if enabled (and targets still present)
         self.logger.info("Ready")
 
@@ -165,7 +163,7 @@ class BitrateKiller(commands.Cog):
 
         if before.channel:
             channel_task = self.bk_channels.get(before.channel.id)
-            #await utils.send_message(self.logger, cmd_channel, "{0}".format(str(self.bk_channels[before.channel.id])))
+            # await utils.send_message(self.logger, cmd_channel, "{0}".format(str(self.bk_channels[before.channel.id])))
             # if member is target from self.bk_channels:
             if channel_task is not None and member.id in channel_task[1]:
                 # Remove current user from list
@@ -177,12 +175,24 @@ class BitrateKiller(commands.Cog):
                     # stop task
                     channel_task[0].cancel()
                     # set bkill on channel to false
-                    await self.bot.db.set_voicechannel_bkill(before.channel.guild.id, before.channel.id, False)
+                    await self.bot.db.set_voicechannel_bkill(
+                        before.channel.guild.id, before.channel.id, False
+                    )
                     # restore bitrate on channel
-                    await before.channel.edit(bitrate=await self.bot.db.get_voicechannel_bitrate(before.channel.guild.id, before.channel.id))
+                    await before.channel.edit(
+                        bitrate=await self.bot.db.get_voicechannel_bitrate(
+                            before.channel.guild.id, before.channel.id
+                        )
+                    )
                     # remove channel from self.bk_channels
                     self.bk_channels.pop(before.channel.id)
-                    await utils.send_message(self.logger, cmd_channel, "{0} bkill disabled `{1:.0f}kbps`".format(before.channel.mention, before.channel.bitrate * 1e-3))
+                    await utils.send_message(
+                        self.logger,
+                        cmd_channel,
+                        "{0} bkill disabled `{1:.0f}kbps`".format(
+                            before.channel.mention, before.channel.bitrate * 1e-3
+                        ),
+                    )
 
         if after.channel:
             # if member is target from database:
@@ -197,19 +207,25 @@ class BitrateKiller(commands.Cog):
                         after.channel.guild.id, after.channel.id, True
                     )
                     # start task
-                    self.bk_channels[after.channel.id] = (self.bot.loop.create_task(
-                        self.timer_task(
-                            after.channel,
-                            cmd_channel,
-                            guild.bitrate_reduction_interval,
-                            guild.bitrate_reduction_amount,
-                            guild.min_bitrate,
-                        )
-                    ), [member.id])
+                    self.bk_channels[after.channel.id] = (
+                        self.bot.loop.create_task(
+                            self.timer_task(
+                                after.channel,
+                                cmd_channel,
+                                guild.bitrate_reduction_interval,
+                                guild.bitrate_reduction_amount,
+                                guild.min_bitrate,
+                            )
+                        ),
+                        [member.id],
+                    )
             else:
                 # add target to self.bk_channels list
                 data = self.bk_channels[after.channel.id]
-                self.bk_channels[after.channel.id] = (data[0], data[1].append(member.id))
+                self.bk_channels[after.channel.id] = (
+                    data[0],
+                    data[1].append(member.id),
+                )
 
         # If username is not a target ignore
         # Combine guild enable, and target comparison with members on channel
@@ -295,21 +311,26 @@ class BitrateKiller(commands.Cog):
     #     TODO: or maybe just do the delete and ignore the exception if it fails
 
     # TODO: Commands to trigger and cancel manually
-    # TODO: Commands to copy bitrate settings to db (optional bitrate snapshots and restore)
 
     @commands.command(name="save")
     @commands.guild_only()
     async def save(self, ctx: commands.Context):
-        # Saves bitrate from all channels in guild
+        """Saves bitrate from all channels in guild"""
+        if not await utils.check_cc(self.bot, ctx):
+            return
         for localc in await self.bot.db.get_guild_voicechannels(ctx.guild.id):
             channel = self.bot.get_channel(localc.cid)
-            await self.bot.db.set_voicechannel_bitrate(localc.gid, localc.cid, channel.bitrate)
+            await self.bot.db.set_voicechannel_bitrate(
+                localc.gid, localc.cid, channel.bitrate
+            )
         await ctx.message.add_reaction("\N{THUMBS UP SIGN}")
 
     @commands.command(name="restore")
     @commands.guild_only()
     async def restore(self, ctx: commands.Context):
-        # Restores bitrate on all channels
+        """Restores bitrate on all channels in guild"""
+        if not await utils.check_cc(self.bot, ctx):
+            return
         for localc in await self.bot.db.get_guild_voicechannels(ctx.guild.id):
             channel = self.bot.get_channel(localc.cid)
             await channel.edit(bitrate=localc.bitrate)
@@ -318,6 +339,8 @@ class BitrateKiller(commands.Cog):
     @commands.command(name="arm")
     @commands.guild_only()
     async def arm(self, ctx: commands.Context):
+        if not await utils.check_cc(self.bot, ctx):
+            return
         await self.bot.db.set_guild_enable(ctx.guild.id, True)
         # TODO: Start all bkill tasks for guild
         await ctx.message.add_reaction("\N{THUMBS UP SIGN}")
@@ -325,6 +348,8 @@ class BitrateKiller(commands.Cog):
     @commands.command(name="disarm")
     @commands.guild_only()
     async def disarm(self, ctx: commands.Context):
+        if not await utils.check_cc(self.bot, ctx):
+            return
         await self.bot.db.set_guild_enable(ctx.guild.id, False)
         # Stop all bkill tasks for guild
         vc = await self.bot.db.get_guild_voicechannels(ctx.guild.id)
@@ -336,19 +361,34 @@ class BitrateKiller(commands.Cog):
                     # stop task
                     bk_channel[0].cancel()
                     # set bkill on channel to false
-                    await self.bot.db.set_voicechannel_bkill(handle.guild.id, c.cid, False)
+                    await self.bot.db.set_voicechannel_bkill(
+                        handle.guild.id, c.cid, False
+                    )
                     # restore bitrate on channel
-                    await handle.edit(bitrate=await self.bot.db.get_voicechannel_bitrate(c.gid, c.cid))
+                    await handle.edit(
+                        bitrate=await self.bot.db.get_voicechannel_bitrate(c.gid, c.cid)
+                    )
                     # remove channel from self.bk_channels
                     self.bk_channels.pop(c.cid)
-                    await utils.send_message(self.logger, ctx, "{0} bkill disabled `{1:.0f}kbps`".format(handle.mention, handle.bitrate * 1e-3))
+                    await utils.send_message(
+                        self.logger,
+                        ctx,
+                        "{0} bkill disabled `{1:.0f}kbps`".format(
+                            handle.mention, handle.bitrate * 1e-3
+                        ),
+                    )
         await ctx.message.add_reaction("\N{THUMBS UP SIGN}")
 
     @commands.command(name="control")
     @commands.guild_only()
     async def set_control_channel(self, ctx: commands.Context, cc: TextChannel = None):
-        # TODO: Check commands are only read from control channel
-        self.logger.debug("Set control channel for guild ")
+        old_cc = await self.bot.db.get_guild_cc(ctx.guild.id)
+        # If command channel is set, accept changes only from command channel.
+        # Otherwise, accept from any channel (for first time setup)
+        if old_cc is not None and old_cc != ctx.channel.id:
+            return
+
+        self.logger.debug("Set control channel for guild " + str(cc))
         await self.bot.db.set_guild_cc(
             ctx.guild.id, (ctx.channel.id if cc is None else cc.id)
         )
@@ -358,6 +398,8 @@ class BitrateKiller(commands.Cog):
     @commands.guild_only()
     async def get_target_issuer(self, ctx: commands.Context, target: Member = None):
         """Find out who added a target. If argument is None, checks current user."""
+        if not await utils.check_cc(self.bot, ctx):
+            return
         cmd_uid = ctx.author.id if target is None else target.id
         issuer_uid = await self.bot.db.get_target_issuer(ctx.guild.id, cmd_uid)
         await utils.send_message(self.logger, ctx, str(issuer_uid))
@@ -365,6 +407,8 @@ class BitrateKiller(commands.Cog):
     @commands.command(name="min")
     @commands.guild_only()
     async def set_min_bitrate(self, ctx: commands.Context, min: int):
+        if not await utils.check_cc(self.bot, ctx):
+            return
         await utils.send_message(
             self.logger, ctx, "Set min bitrate to **" + str(min) + "**"
         )
@@ -373,7 +417,8 @@ class BitrateKiller(commands.Cog):
     @commands.command(name="amount")
     @commands.guild_only()
     async def set_interval(self, ctx: commands.Context, amount: int, seconds: float):
-        # TODO: Allow k(*1e3) suffix parsing
+        if not await utils.check_cc(self.bot, ctx):
+            return
         await utils.send_message(
             self.logger,
             ctx,
@@ -386,6 +431,8 @@ class BitrateKiller(commands.Cog):
     @commands.command(name="targets")
     @commands.guild_only()
     async def list_targets(self, ctx: commands.Context):
+        if not await utils.check_cc(self.bot, ctx):
+            return
         await ctx.send(
             "Targets: "
             + ", ".join(
@@ -397,18 +444,24 @@ class BitrateKiller(commands.Cog):
     @commands.command(name="add")
     @commands.guild_only()
     async def add_target(self, ctx: commands.Context, member: Member):
+        if not await utils.check_cc(self.bot, ctx):
+            return
         await self.bot.db.add_target(BotTarget(ctx.guild.id, member.id, ctx.author.id))
         await utils.send_message(self.logger, ctx, "Added " + str(member))
 
     @commands.command(name="remove")
     @commands.guild_only()
     async def remove_target(self, ctx: commands.Context, member: Member):
+        if not await utils.check_cc(self.bot, ctx):
+            return
         await self.bot.db.remove_target(ctx.guild.id, member.id)
         await utils.send_message(self.logger, ctx, "Removed " + str(member))
 
     @commands.command(name="clear")
     @commands.guild_only()
     async def clear_targets(self, ctx: commands.Context):
+        if not await utils.check_cc(self.bot, ctx):
+            return
         await self.bot.db.clear_targets(ctx.guild.id)
         await utils.send_message(self.logger, ctx, "Removed all targets")
 

@@ -227,7 +227,7 @@ class SQLiteBotDB(BotDB):
 
     async def is_target(self, gid: int, uid: int):
         async with self._conn.execute(
-            #"SELECT (SELECT bkill_enable from Guild WHERE gid=?) AND EXISTS(SELECT 1 FROM Target where gid=? and uid=?);",
+            # "SELECT (SELECT bkill_enable from Guild WHERE gid=?) AND EXISTS(SELECT 1 FROM Target where gid=? and uid=?);",
             "SELECT EXISTS(SELECT 1 FROM Target where gid=? and uid=?);",
             [gid, uid],
         ) as cursor:
