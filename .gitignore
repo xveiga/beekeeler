@@ -130,3 +130,6 @@ dmypy.json
 
 # Configuration file
 config.json
+
+# Database
+db.sqlite

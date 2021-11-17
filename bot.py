@@ -1,8 +1,22 @@
+import asyncio
+import json
 import sys
-from json import load
+import datetime
+from typing import OrderedDict
+import logging
+import logging.handlers
+
 from discord import Intents
-from discord.channel import VoiceChannel
-from discord.ext import commands, tasks
+from discord.ext import commands
+
+from database.backend.sqlite import SQLiteBotDB
+
+try:
+    import uvloop
+except ImportError:
+    pass
+else:
+    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
 """
 Discord bitrate reduction prank bot
@@ -15,293 +29,129 @@ Scopes:
 
 Bot Permissions:
     - Administrator (0x8)
+
+Requires at least Python 3.9 (for function return type annotations)
 """
 
 
-class BotCommands(commands.Cog):
-    def __init__(self, bot: commands.Bot, config):
-        self.bot = bot
+class Bot(commands.Bot):
+    def __init__(self, extensions, db, config=None):
+        self.db = db
         self.config = config
-        self.reset()
-        self.command_channel = None
-        self.timer_task.change_interval(
-            seconds=self.config["bitrate_reduction_interval"]
+        self.logger = logging.getLogger(__name__)
+        self.prefixes = OrderedDict()
+
+        # Enable intents for user list fetching
+        intents = Intents.default()
+        intents.members = True
+        # Create bot
+        super().__init__(command_prefix=self._get_prefix, intents=intents)
+        self.add_listener(self.on_ready)
+
+        for ext in extensions:
+            try:
+                self.load_extension(ext)
+            except Exception as e:
+                self.logger.error(
+                    "Failed to load extension {}\n{}: {}".format(
+                        ext, type(e).__name__, e
+                    )
+                )
+
+    async def _get_prefix(self, bot, message):
+        # If DM, use no prefix
+        if message.guild is None:
+            return ""
+        # Check if current server is cached in memory
+        gid = message.guild.id
+        prefix = self.prefixes.get(gid)
+        if prefix is not None:
+            return prefix
+
+        # Else, search in database
+        prefix = await self.db.get_guild_prefix(gid)
+        # If not found set default and add entry to database
+        if prefix is None:
+            prefix = "$"
+            await self.db.set_guild_prefix(gid, prefix)
+        # LIFO Cache eviction
+        if len(self.prefixes) >= 100:
+            self.prefixes.popitem(False)
+        # Add to cache
+        self.prefixes[gid] = prefix
+        return prefix
+
+    async def invalidate_prefix(self, gid: int):
+        self.prefixes.pop(gid, None)
+
+    async def _open_db(self):
+        if self.db.is_open():
+            return
+        try:
+            await self.db.open()
+            if await self.db.is_first_run():
+                await self.db.create_tables()
+        except Exception as exception:
+            self.logger.error(
+                'Unable to access database "'
+                + self.db.get_uri()
+                + '": '
+                + str(exception)
+            )
+            raise SystemExit from exception
+
+    async def on_ready(self):
+        self.logger.info(
+            "Logged in as {0}#{1} (app name: {2}, id: {3})".format(
+                self.user.display_name,
+                self.user.discriminator,
+                self.user.name,
+                self.user.id,
+            )
         )
 
-    def reset(self):
-        self.armed = False
-        self.target = None
-        self.channel = None
-        self.original_bitrate = 0
-
-    def check_command_channel(self, ctx):
-        self.command_channel = ctx.channel
-        return ctx.channel.name == self.config["control_channel_name"]
-
-    async def get_user(self, ctx, username):
-        async for member in ctx.guild.fetch_members(limit=100):
-            if (
-                username == member.name
-                or username == member.name + "#" + member.discriminator
-            ):
-                return member
-        return None
-
-    def get_user_voice_channel(self, ctx, userid):
-        for channel in ctx.guild.channels:
-            if isinstance(channel, VoiceChannel):
-                for member in channel.voice_states:
-                    if member == userid:
-                        return channel
-        return None
-
-    async def send_message(self, ctx, message):
-        print(message)
-        await ctx.send(message)
-
-    # Magic
-    @commands.Cog.listener()
-    async def on_voice_state_update(self, member, before, after):
-        # If not armed do nothing
-        if not self.armed:
-            return
-
-        # If username is blacklisted
-        # print(member.name + "#" + member.discriminator)
-        if member.id == self.target.id:
-            if not before.channel and after.channel:
-                # If user just joined a channel, activate for current channel
-                self.channel = after.channel
-                self.original_bitrate = self.channel.bitrate
-                self.timer_task.start()
-                await self.send_message(
-                    self.command_channel,
-                    member.name + " joined on " + str(after.channel),
-                )
-            elif before.channel and after.channel:
-                # If user changes channel, restore original_bitrate on previous
-                await before.channel.edit(
-                    bitrate=self.original_bitrate
-                    if self.original_bitrate != 0
-                    else before.channel.bitrate
-                )
-                self.original_bitrate = after.channel.bitrate
-                self.channel = after.channel
-                if not self.timer_task.is_running():
-                    self.timer_task.start()
-                await self.send_message(
-                    self.command_channel,
-                    "{0} moved to {1}. Restored {2:.0f}kbps on {3}".format(
-                        member.name,
-                        after.channel.name,
-                        before.channel.bitrate * 1e-3,
-                        str(before.channel.name),
-                    ),
-                )
-            else:
-                # If user leaves, restore default settings.
-                self.timer_task.stop()
-                await before.channel.edit(
-                    bitrate=self.original_bitrate
-                    if self.original_bitrate != 0
-                    else before.channel.bitrate
-                )
-                self.channel = None
-                await self.send_message(
-                    self.command_channel,
-                    "{0} left {1}. Restored {2:.0f}kbps".format(
-                        member.name, before.channel.name, before.channel.bitrate * 1e-3
-                    ),
-                )
-
-    @commands.command(name="arm")
-    async def enable(self, ctx: commands.Context, *, username: str):
-        if not self.check_command_channel(ctx):
-            return
-
-        if self.armed:
-            await self.send_message(
-                self.command_channel,
-                "Already armed for user "
-                + str(self.target)
-                + ". Run disarm command first",
-            )
-            return
-
-        if self.timer_task.is_running():
-            self.timer_task.cancel()
-        # Find user id
-        self.target = await self.get_user(ctx, username)
-        self.armed = True
-        # Check if user is already on any server channel
-        channel = self.get_user_voice_channel(ctx, self.target.id)
-        user = self.target.name + "#" + self.target.discriminator
-        if channel:
-            self.channel = channel
-            self.original_bitrate = channel.bitrate
-            self.timer_task.start()
-            await self.send_message(
-                self.command_channel,
-                "Active on channel {0} for user {1}. Original bitrate {2:.0f}kbps".format(
-                    channel.name,
-                    str(user),
-                    channel.bitrate * 1e-3,
-                ),
-            )
-        else:
-            await self.send_message(self.command_channel, "Armed for " + user)
-
-    @commands.command(name="disarm")
-    async def disable(self, ctx: commands.Context):
-        if not self.check_command_channel(ctx):
-            return
-
-        if self.armed and self.timer_task.is_running():
-            self.timer_task.cancel()
-            await self.channel.edit(bitrate=self.original_bitrate)
-            await self.send_message(
-                self.command_channel,
-                "Disarmed. Restored {0:.0f}kbps on {1}".format(
-                    self.channel.bitrate * 1e-3, str(self.channel.name)
-                ),
-            )
-        else:
-            await self.send_message(self.command_channel, "Disarmed")
-        self.reset()
-
-    @commands.command(name="status")
-    async def status(self, ctx: commands.Context):
-        if not self.check_command_channel(ctx):
-            return
-        await self.send_message(
-            self.command_channel,
-            "-- Status --\n"
-            "Armed: {0}\n"
-            "Target user: {1} ({2})\n"
-            "Target channel: {3} ({4})\n"
-            "Original Bitrate: {5}bps\n"
-            "-- Configuration --\n"
-            "Command channel: {6} ({7})\n"
-            "Bitrate reduction amount: {8}bps/2sec\n"
-            "Minimum bitrate: {9}".format(
-                self.armed,
-                self.target,
-                "-" if self.target is None else self.target.id,
-                self.channel,
-                "-" if self.channel is None else self.channel.id,
-                self.original_bitrate * 1e-3,
-                self.command_channel,
-                "-" if self.command_channel is None else self.command_channel.id,
-                self.config["bitrate_reduction_amount"],
-                self.config["min_bitrate"],
-            ),
-        )
-
-    @commands.command(name="panik")
-    async def stop(self, ctx: commands.Context):
-        if not self.check_command_channel(ctx):
-            return
-        await self.send_message(self.command_channel, "Emergency stop, terminating...")
-        await self.bot.close()
-
-    @commands.command(name="scram")
-    async def stop2(self, ctx: commands.Context):
-        await self.stop(ctx)
-
-    @commands.command(name="latency")
-    async def latency(self, ctx: commands.Context):
-        if not self.check_command_channel(ctx):
-            return
-        latency = f"{round(self.bot.latency * 1000)}ms"
-        await self.send_message(self.command_channel, latency)
-
-    @commands.command(name="reconfig")
-    async def read_config(self, ctx: commands.Context):
-        if not self.check_command_channel(ctx):
-            return
-        self.config = load_config("config.json")
-        # self.timer_task.seconds?? = self.config["bitrate_reduction_interval"]
-        self.timer_task.change_interval(
-            seconds=self.config["bitrate_reduction_interval"]
-        )
-        await self.send_message(self.command_channel, "Reloaded configuration")
-
-    @tasks.loop()
-    async def timer_task(self):
-        if not self.armed:
-            self.timer_task.cancel()
-            return
-        bitrate = self.channel.bitrate - self.config["bitrate_reduction_amount"]
-        min_bitrate = self.config["min_bitrate"]
-        if bitrate <= min_bitrate:
-            bitrate = min_bitrate
-            await self.channel.edit(bitrate=bitrate)
-            await self.send_message(
-                self.command_channel,
-                "Reached minimum bitrate: " + str(self.channel.bitrate),
-            )
-            self.timer_task.cancel()
-        else:
-            await self.channel.edit(bitrate=bitrate)
-            await self.send_message(
-                self.command_channel,
-                "Set bitrate to {0:.0f}kbps on {1}".format(
-                    self.channel.bitrate * 1e-3, str(self.channel.name)
-                ),
-            )
-
-
-class BotErrors(commands.Cog):
-    def __init__(self, bot: commands.Bot):
-        self.bot = bot
-
-    @commands.Cog.listener()
-    async def on_command_error(
-        self, ctx: commands.Context, error: commands.CommandError
-    ):
-        """A global error handler cog."""
-
-        if isinstance(error, commands.CommandNotFound):
-            return  # Return because we don't want to show an error for every command not found
-        elif isinstance(error, commands.CommandOnCooldown):
-            message = f"This command is on cooldown. Please try again after {round(error.retry_after, 1)} seconds."
-        elif isinstance(error, commands.MissingPermissions):
-            message = "You are missing the required permissions to run this command!"
-        elif isinstance(error, commands.UserInputError):
-            message = "Something about your input was wrong, please check your input and try again!"
-        else:
-            message = "Oh no! Something went wrong while running the command!"
-
-        await ctx.send(message, delete_after=5)
-        await ctx.message.delete(delay=5)
-
-
-def load_config(config_file):
-    with open(config_file, "rt") as f:
-        config = load(f)
-    return config
-
-
-def save_config(config_file, config_dict):
-    with open(config_file, "wt") as f:
-        f.write(json.dumps(config))
+    def run(self, *args, **kwargs):
+        self.logger.info("Database: " + str(self.db.get_uri()))
+        self.loop.run_until_complete(self._open_db())
+        self.upstamp = datetime.datetime.utcnow()
+        super().run(*args, **kwargs)
+        loop = asyncio.new_event_loop()
+        self.logger.info("Gracefully closing database")
+        loop.run_until_complete(self.db.close())
 
 
 def main(config_file):
+    # Setup logging
+    logfmt = (
+        "[%(asctime)s] %(levelname)s - %(name)s (%(filename)s:%(lineno)d): %(message)s"
+    )
+    datefmt = "%d/%m/%Y %H:%M:%S"
+    logging.basicConfig(
+        level=logging.DEBUG,
+        filename="bot.log",
+        encoding="utf-8",
+        format=logfmt,
+        datefmt=datefmt,
+    )
+    root_log = logging.getLogger()
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setLevel(logging.DEBUG)
+    handler.setFormatter(logging.Formatter(fmt=logfmt, datefmt=datefmt))
+    root_log.addHandler(handler)
+
     # Load config file
     try:
-        config = load_config(config_file)
-    except Exception as e:
-        print("Unable to read config file " + config_file + ": " + str(e))
-        raise SystemExit
+        with open(config_file, "rt") as file:
+            config = json.load(file)
+    except Exception as ex:
+        logging.log.critical(
+            "Unable to read config file " + config_file + ": " + str(ex)
+        )
+        raise SystemExit from ex
 
-    # Enable intents for user list fetching
-    intents = Intents.default()
-    intents.members = True
-    # Create bot
-    bot = commands.Bot(command_prefix=config["command_prefix"], intents=intents)
-    bot.add_cog(BotCommands(bot, config))
-    bot.add_cog(BotErrors(bot))
+    # Initialize database (sqlite implementation)
+    db = SQLiteBotDB(config["db"])
+    bot = Bot(config["modules"], db, config)
 
     # Run
     bot.run(config["token"])
@@ -311,5 +161,5 @@ if __name__ == "__main__":
     if len(sys.argv) == 2:
         main(sys.argv[1])
     else:
-        print("Using config.json")
+        print("Reading config.json")
         main("config.json")
