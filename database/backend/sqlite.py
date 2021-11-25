@@ -86,12 +86,6 @@ class SQLiteBotDB(BotDB):
             )
         )
 
-        # TODO: Add new table "user log", that logs time, event type, guild,
-        # issuer(user) (NULL being the bot itself)
-        # target(user) (NULL being a normal command with no effect on any user),
-        # message id (if the bot replied, for auto deletion purposes, with "clear" command)
-        # Alternatively, just save total statistics (targeted count, added user count, bkill count)
-
         await self._conn.commit()
 
     async def add_guild(self, guild: BotGuild):
@@ -227,7 +221,6 @@ class SQLiteBotDB(BotDB):
 
     async def is_target(self, gid: int, uid: int):
         async with self._conn.execute(
-            # "SELECT (SELECT bkill_enable from Guild WHERE gid=?) AND EXISTS(SELECT 1 FROM Target where gid=? and uid=?);",
             "SELECT EXISTS(SELECT 1 FROM Target where gid=? and uid=?);",
             [gid, uid],
         ) as cursor:

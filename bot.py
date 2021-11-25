@@ -128,16 +128,22 @@ def main(config_file):
     datefmt = "%d/%m/%Y %H:%M:%S"
     logging.basicConfig(
         level=logging.DEBUG,
-        filename="bot.log",
+        # filename="bot.log",
         encoding="utf-8",
         format=logfmt,
         datefmt=datefmt,
     )
     root_log = logging.getLogger()
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setLevel(logging.DEBUG)
-    handler.setFormatter(logging.Formatter(fmt=logfmt, datefmt=datefmt))
-    root_log.addHandler(handler)
+    stdout_handler = logging.StreamHandler(sys.stdout)
+    stdout_handler.setLevel(logging.DEBUG)
+    stdout_handler.setFormatter(logging.Formatter(fmt=logfmt, datefmt=datefmt))
+    file_handler = logging.handlers.TimedRotatingFileHandler(
+        filename="bot.log", when="D", backupCount=7
+    )
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(logging.Formatter(fmt=logfmt, datefmt=datefmt))
+    root_log.addHandler(stdout_handler)
+    root_log.addHandler(file_handler)
 
     # Load config file
     try:

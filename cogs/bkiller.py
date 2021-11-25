@@ -202,7 +202,7 @@ class BitrateKiller(commands.Cog):
                 # if channel entry does not exist:
                 if channel_task is None:
                     # set bkill on channel to true
-                    # TODO: This is unnecessary if checked on boot
+                    # TODO: This is unnecessary if checked on boot, may be reused for channel whitelisting
                     await self.bot.db.set_voicechannel_bkill(
                         after.channel.guild.id, after.channel.id, True
                     )
@@ -226,52 +226,6 @@ class BitrateKiller(commands.Cog):
                     data[0],
                     data[1].append(member.id),
                 )
-
-        # If username is not a target ignore
-        # Combine guild enable, and target comparison with members on channel
-        # use IN keyword to compare with the list
-        # https://stackoverflow.com/questions/283645/python-list-in-sql-query-as-parameter
-        # Possible signature check_channel_bkill(gid, cid, uid_memberlist)
-        # Idea (some cases are missing 1,2,3 below):
-        # if check_channel_bkill:
-        # if not self.bk_channels.get(after.channel.id):
-        #   start new task
-        # else:
-        # if self.bk_channels.get(before.channel.id):
-        #   cancel task
-        # if not await self.bot.db.is_targetable(member.guild.id, member.id):
-        #     return
-
-        # # Else, three possibilities:
-        # # 1. Target joined a channel -> Bkill "after" channel if not active yet
-        # if not before.channel and after.channel:
-        #     if not await self.bot.db.get_voicechannel_bkill(
-        #         after.channel.guild.id, after.channel.id
-        #     ):
-        #         # TODO: Target comparison with after channel
-        #         # Check if task already exists
-        #         # If not, start it
-        #         self.bk_channels[after.channel.id] = self.bot.loop.create_task(
-        #             self.timer_task(
-        #                 after.channel,
-        #                 cmd_channel,
-        #                 guild.bitrate_reduction_interval,
-        #                 guild.bitrate_reduction_amount,
-        #                 guild.min_bitrate,
-        #             )
-        #         )
-        #         self.bot.db.set_voicechannel_bkill(
-        #             after.channel.guild.id, after.channel.id, True
-        #         )
-
-        # # 2. Target left channel -> Stop bkill on "before" if no other targets present
-        # elif before.channel and not after.channel:
-        #     # TODO: Target comparison with before channel, removing current member from target list
-        #     # If no targets, stop timer task and set br_kill on VoiceChannel on DB
-        #     pass
-        # # 3. Target changed channel -> Do both 1 and 2
-        # elif before.channel and after.channel:
-        #     pass
 
     async def timer_task(self, channel, cmd_channel, interval, amount, min):
         # TODO: On database modification event listener
@@ -308,9 +262,52 @@ class BitrateKiller(commands.Cog):
     #     # using "(SELECT ... from Target) ... OR (DELETE FROM Target ...)""
     #     # this way the delete part should be evaluated only if the select suceeds
     #     self.logger.debug("member remove: " + str(member))
-    #     TODO: or maybe just do the delete and ignore the exception if it fails
+    #     # or maybe just do the delete and ignore the exception if it fails
 
-    # TODO: Commands to trigger and cancel manually
+    # @commands.command(name="bkill")
+    # @commands.guild_only()
+    # async def kill(self, ctx: commands.Context, vc: VoiceChannel = None):
+    #     if not await utils.check_cc(self.bot, ctx):
+    #         return
+    #     # TODO: Commands to trigger and cancel manually
+    #     # get channel from self.bk_channels
+    #     channel_task = self.bk_channels.get(vc.id)
+    #     # if channel entry does not exist:
+    #     if channel_task is None:
+    #         # set bkill on channel to true
+    #         # TODO: This is unnecessary if checked on boot, may be reused for channel whitelisting
+    #         await self.bot.db.set_voicechannel_bkill(
+    #             vc.guild.id, vc.id, True
+    #         )
+    #         # start task
+    #         guild = await self.bot.db.get_guild(ctx.guild.id)
+    #         self.bk_channels[vc.id] = (
+    #             self.bot.loop.create_task(
+    #                 self.timer_task(
+    #                     vc,
+    #                     guild.control_channel,
+    #                     guild.bitrate_reduction_interval,
+    #                     guild.bitrate_reduction_amount,
+    #                     guild.min_bitrate,
+    #                 )
+    #             ),
+    #             [ctx.author.id],
+    #         )
+    #     await utils.send_message(
+    #         self.logger, ctx, "Channel: **" + str(vc) + "**"
+    #     )
+    #     #await ctx.message.add_reaction("\N{THUMBS UP SIGN}")
+
+    # @commands.command(name="bcancel")
+    # @commands.guild_only()
+    # async def cancel(self, ctx: commands.Context, vc: VoiceChannel = None):
+    #     if not await utils.check_cc(self.bot, ctx):
+    #         return
+    #     # TODO: Commands to trigger and cancel manually
+    #     await utils.send_message(
+    #         self.logger, ctx, "Channel: **" + str(vc) + "**"
+    #     )
+    #     #await ctx.message.add_reaction("\N{THUMBS UP SIGN}")
 
     @commands.command(name="save")
     @commands.guild_only()
@@ -474,6 +471,8 @@ class BitrateKiller(commands.Cog):
     @add_target.error
     @remove_target.error
     @clear_targets.error
+    @kill.error
+    @cancel.error
     async def default_error(self, ctx: commands.Context, error):
         await utils.send_message(
             self.logger, ctx, str(error), before="```fix\n", after="\n```"
