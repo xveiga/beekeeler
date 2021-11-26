@@ -1,2 +1,2 @@
 run = "python3.9 bot.py"
-language = "python3"
+language = "nix"
