@@ -89,7 +89,7 @@ class SQLiteBotDB(BotDB):
 
     async def add_guild(self, guild: BotGuild):
         await self._conn.execute(
-            "INSERT INTO Guild (gid, name, cmd_channel, bkill_amt, bkill_int, bkill_min, bkill_enable) VALUES(?, ?, ?, ?, ?, ?);",
+            "INSERT INTO Guild (gid, name, cmd_channel, bkill_amt, bkill_int, bkill_min, bkill_enable) VALUES(?, ?, ?, ?, ?, ?, ?);",
             [
                 guild.gid,
                 guild.name,
