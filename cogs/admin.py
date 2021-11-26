@@ -2,7 +2,7 @@ import logging
 
 from discord.ext import commands
 
-import cogs.utils as utils
+from cogs import utils
 
 
 def setup(bot):

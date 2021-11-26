@@ -1,15 +1,16 @@
 import asyncio
 import logging
 
-from discord import Guild, Member, VoiceChannel
+from discord import Guild, Member, VoiceChannel, Embed
 from discord.abc import GuildChannel
 from discord.channel import TextChannel
+from discord.errors import InvalidArgument
 from discord.ext import commands
 
 from database.dao.guild import BotGuild
 from database.dao.target import BotTarget
 from database.dao.voicechannel import BotVoiceChannel
-import cogs.utils as utils
+from cogs import utils
 
 
 def setup(bot):
@@ -189,7 +190,7 @@ class BitrateKiller(commands.Cog):
                     await utils.send_message(
                         self.logger,
                         cmd_channel,
-                        "{0} bkill disabled `{1:.0f}kbps`".format(
+                        "{0} `{1:.0f}kbps` bkill disabled ".format(
                             before.channel.mention, before.channel.bitrate * 1e-3
                         ),
                     )
@@ -264,50 +265,75 @@ class BitrateKiller(commands.Cog):
     #     self.logger.debug("member remove: " + str(member))
     #     # or maybe just do the delete and ignore the exception if it fails
 
-    # @commands.command(name="bkill")
-    # @commands.guild_only()
-    # async def kill(self, ctx: commands.Context, vc: VoiceChannel = None):
-    #     if not await utils.check_cc(self.bot, ctx):
-    #         return
-    #     # TODO: Commands to trigger and cancel manually
-    #     # get channel from self.bk_channels
-    #     channel_task = self.bk_channels.get(vc.id)
-    #     # if channel entry does not exist:
-    #     if channel_task is None:
-    #         # set bkill on channel to true
-    #         # TODO: This is unnecessary if checked on boot, may be reused for channel whitelisting
-    #         await self.bot.db.set_voicechannel_bkill(
-    #             vc.guild.id, vc.id, True
-    #         )
-    #         # start task
-    #         guild = await self.bot.db.get_guild(ctx.guild.id)
-    #         self.bk_channels[vc.id] = (
-    #             self.bot.loop.create_task(
-    #                 self.timer_task(
-    #                     vc,
-    #                     guild.control_channel,
-    #                     guild.bitrate_reduction_interval,
-    #                     guild.bitrate_reduction_amount,
-    #                     guild.min_bitrate,
-    #                 )
-    #             ),
-    #             [ctx.author.id],
-    #         )
-    #     await utils.send_message(
-    #         self.logger, ctx, "Channel: **" + str(vc) + "**"
-    #     )
-    #     #await ctx.message.add_reaction("\N{THUMBS UP SIGN}")
+    @commands.command(name="bkill")
+    @commands.guild_only()
+    async def kill(self, ctx: commands.Context, vc: VoiceChannel = None):
+        if not await utils.check_cc(self.bot, ctx):
+            return
 
-    # @commands.command(name="bcancel")
-    # @commands.guild_only()
-    # async def cancel(self, ctx: commands.Context, vc: VoiceChannel = None):
-    #     if not await utils.check_cc(self.bot, ctx):
-    #         return
-    #     # TODO: Commands to trigger and cancel manually
-    #     await utils.send_message(
-    #         self.logger, ctx, "Channel: **" + str(vc) + "**"
-    #     )
-    #     #await ctx.message.add_reaction("\N{THUMBS UP SIGN}")
+        # If no channel is specified, take issuer's current voicechannel if it exists
+        if vc is None:
+            if ctx.author.voice is None:
+                raise InvalidArgument("Missing voicechannel")
+            else:
+                vc = ctx.author.voice.channel
+
+        # get channel from self.bk_channels
+        channel_task = self.bk_channels.get(vc.id)
+        # if channel entry does not exist:
+        if channel_task is None:
+            # set bkill on channel to true
+            # TODO: This is unnecessary if checked on boot, may be reused for channel whitelisting
+            await self.bot.db.set_voicechannel_bkill(vc.guild.id, vc.id, True)
+            # start task
+            guild = await self.bot.db.get_guild(ctx.guild.id)
+            self.bk_channels[vc.id] = (
+                self.bot.loop.create_task(
+                    self.timer_task(
+                        vc,
+                        ctx,
+                        guild.bitrate_reduction_interval,
+                        guild.bitrate_reduction_amount,
+                        guild.min_bitrate,
+                    )
+                ),
+                [ctx.author.id],
+            )
+        # await ctx.message.add_reaction("\N{THUMBS UP SIGN}")
+
+    @commands.command(name="bcancel")
+    @commands.guild_only()
+    async def cancel(self, ctx: commands.Context, vc: VoiceChannel = None):
+        if not await utils.check_cc(self.bot, ctx):
+            return
+
+        # If no channel is specified, take issuer's current voicechannel if it exists
+        if vc is None:
+            if ctx.author.voice is None:
+                raise InvalidArgument("Missing voicechannel")
+            else:
+                vc = ctx.author.voice.channel
+
+        channel_task = self.bk_channels.get(vc.id)
+        if channel_task is not None:
+            # stop task
+            channel_task[0].cancel()
+            # set bkill on channel to false
+            await self.bot.db.set_voicechannel_bkill(vc.guild.id, vc.id, False)
+            # restore bitrate on channel
+            await vc.edit(
+                bitrate=await self.bot.db.get_voicechannel_bitrate(vc.guild.id, vc.id)
+            )
+            # remove channel from self.bk_channels
+            self.bk_channels.pop(vc.id)
+            await utils.send_message(
+                self.logger,
+                ctx,
+                "{0}` {1:.0f}kbps` bkill disabled".format(
+                    vc.mention, vc.bitrate * 1e-3
+                ),
+            )
+        # await ctx.message.add_reaction("\N{THUMBS UP SIGN}")
 
     @commands.command(name="save")
     @commands.guild_only()
@@ -352,6 +378,7 @@ class BitrateKiller(commands.Cog):
         vc = await self.bot.db.get_guild_voicechannels(ctx.guild.id)
         if len(vc) > 0:
             for c in vc:
+                # TODO: Move duplicate code to separate function
                 bk_channel = self.bk_channels.get(c.cid)
                 if bk_channel is not None:
                     handle = self.bot.get_channel(c.cid)
@@ -370,7 +397,7 @@ class BitrateKiller(commands.Cog):
                     await utils.send_message(
                         self.logger,
                         ctx,
-                        "{0} bkill disabled `{1:.0f}kbps`".format(
+                        "{0}` {1:.0f}kbps` bkill disabled".format(
                             handle.mention, handle.bitrate * 1e-3
                         ),
                     )
@@ -397,9 +424,26 @@ class BitrateKiller(commands.Cog):
         """Find out who added a target. If argument is None, checks current user."""
         if not await utils.check_cc(self.bot, ctx):
             return
-        cmd_uid = ctx.author.id if target is None else target.id
-        issuer_uid = await self.bot.db.get_target_issuer(ctx.guild.id, cmd_uid)
-        await utils.send_message(self.logger, ctx, str(issuer_uid))
+        target = ctx.author if target is None else target
+        issuer_uid = await self.bot.db.get_target_issuer(ctx.guild.id, target.id)
+        if issuer_uid is None:
+            await utils.send_message(
+                self.logger, ctx, "No one has beekeeled `{0}` yet".format(target)
+            )
+            return
+        issuer = ctx.guild.get_member(issuer_uid)
+        if issuer is None:
+            await utils.send_message(self.logger, ctx, "`{0}`".format(issuer_uid))
+            return
+        embed = Embed(
+            description="Beekeeled by **{0}**\n(*{1}#{2}*)".format(
+                issuer.display_name, issuer.name, issuer.discriminator
+            )
+        )
+        embed.set_author(name=target.display_name, icon_url=target.avatar_url)
+        embed.set_thumbnail(url=issuer.avatar_url)
+        embed.set_footer(text="({0}#{1})".format(target.name, target.discriminator))
+        await utils.send_message(self.logger, ctx, "", embed=embed)
 
     @commands.command(name="min")
     @commands.guild_only()
@@ -430,13 +474,16 @@ class BitrateKiller(commands.Cog):
     async def list_targets(self, ctx: commands.Context):
         if not await utils.check_cc(self.bot, ctx):
             return
-        await ctx.send(
-            "Targets: "
-            + ", ".join(
-                "{} <- {}".format(t.uid, t.issuer)
-                for t in await self.bot.db.get_targets(ctx.guild.id)
+        targets = await self.bot.db.get_targets(ctx.guild.id)
+        if len(targets) <= 0:
+            await utils.send_message(self.logger, ctx, "No targets yet")
+        else:
+            await utils.send_message(
+                self.logger,
+                ctx,
+                "Targets: "
+                + ", ".join("`{} <- {}`".format(t.uid, t.issuer) for t in targets),
             )
-        )
 
     @commands.command(name="add")
     @commands.guild_only()
@@ -444,7 +491,7 @@ class BitrateKiller(commands.Cog):
         if not await utils.check_cc(self.bot, ctx):
             return
         await self.bot.db.add_target(BotTarget(ctx.guild.id, member.id, ctx.author.id))
-        await utils.send_message(self.logger, ctx, "Added " + str(member))
+        await utils.send_message(self.logger, ctx, "Added `{0}`".format(member))
 
     @commands.command(name="remove")
     @commands.guild_only()
@@ -452,7 +499,7 @@ class BitrateKiller(commands.Cog):
         if not await utils.check_cc(self.bot, ctx):
             return
         await self.bot.db.remove_target(ctx.guild.id, member.id)
-        await utils.send_message(self.logger, ctx, "Removed " + str(member))
+        await utils.send_message(self.logger, ctx, "Removed `{0}`".format(member))
 
     @commands.command(name="clear")
     @commands.guild_only()
@@ -473,7 +520,7 @@ class BitrateKiller(commands.Cog):
     @clear_targets.error
     @kill.error
     @cancel.error
-    async def default_error(self, ctx: commands.Context, error):
+    async def default_error(self, ctx: commands.Context, exception):
         await utils.send_message(
-            self.logger, ctx, str(error), before="```fix\n", after="\n```"
+            self.logger, ctx, str(exception), before="```fix\n", after="\n```"
         )

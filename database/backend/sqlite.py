@@ -13,7 +13,6 @@ class SQLiteBotDB(BotDB):
         self._is_open = False
         self._dbfile = dbfile
         self._conn = None
-        # OPTION: Add transparent in-memory cache for sqlite
 
     async def open(self):
         self._is_open = True
