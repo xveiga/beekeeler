@@ -5,6 +5,6 @@
 {
     "token":"YOUR_TOKEN_HERE",
     "db": "db.sqlite",
-    "modules": ["cogs.beekeeler", "cogs.admin", "cogs.hotswapper", "cogs.usermover", "cogs.neoflex"],
+    "modules": ["cogs.beekeeler", "cogs.admin", "cogs.hotswapper", "cogs.usermover", "cogs.neoflex", "cogs.weather"],
     "admin_ids": []
 }
