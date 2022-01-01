@@ -6,7 +6,6 @@ __copyright__ = "Copyright 2021, Galiza. Free as-in-freedom use :)"
 import logging
 
 from discord.ext import commands
-from cogs import utils
 from os import popen
 from os.path import exists
 
@@ -24,7 +23,7 @@ class Weather(commands.Cog):
     async def weather(self, ctx: commands.Context, *args):
 
         if not exists("/usr/bin/curl"):
-            await utils.send_message(
+            await ctx.send_message(
                 self.logger, ctx, "```diff\n- Weather is not available -\n```"
             )
             return
@@ -39,7 +38,7 @@ class Weather(commands.Cog):
                 "+".join(args)
             )
 
-        await utils.send_message(
+        await ctx.send_message(
             self.logger,
             ctx,
             "```\n{0}\n```".format(popen(cmd_str).read().rstrip()),

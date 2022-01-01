@@ -1,10 +1,14 @@
 import os
+
+# import sys
 import inspect
 import logging
 
+# import subprocess
+
 from discord.ext import commands
 
-from cogs import utils
+from utils.checks import admin_only, control_channel_only
 
 
 def setup(bot):
@@ -22,34 +26,38 @@ class CodeEvaluator(commands.Cog):
     # and lack important safety checks.
     # ENABLE AT YOUR OWN RISK. You have been warned.
 
+    # @commands.command(name="restart", hidden=True)
+    # @admin_only()
+    # async def restart(self, ctx):
+    #     await self.bot.close()
+    #     await os.execv(sys.executable, sys.argv)
+
     @commands.command(name="latency")
+    @control_channel_only()
     async def latency(self, ctx: commands.Context):
-        if not await utils.check_cc(self.bot, ctx):
-            return
         latency = f"{round(self.bot.latency * 1000)}ms"
-        await utils.send_message(self.logger, ctx, latency)
+        await ctx.send_message(self.logger, ctx, latency)
 
     async def _pycmd_exec(self, ctx, cmd, *args, **kwargs):
-        if not utils.check_admin(self.bot, ctx):
-            return
-        if not await utils.check_cc(self.bot, ctx):
-            return
         msg = str(cmd(*args, **kwargs))
-        await utils.send_message(self.logger, ctx, msg, before="```py\n", after="\n```")
+        await ctx.send_message(self.logger, ctx, msg, before="```py\n", after="\n```")
 
     @commands.command(name="stat")
+    @admin_only()
+    @control_channel_only()
     async def _stat(self, ctx: commands.Context, path: str):
         await self._pycmd_exec(ctx, os.stat, path)
 
     @commands.command(name="listdir")
+    @admin_only()
+    @control_channel_only()
     async def _listdir(self, ctx: commands.Context, path: str):
         await self._pycmd_exec(ctx, os.listdir, path)
 
     # From https://github.com/Rapptz/RoboDanny/blob/master/cogs/admin.py#L55
     @commands.command(name="eval", pass_context=True, hidden=True)
+    @admin_only()
     async def _eval(self, ctx: commands.Context, *, code: str):
-        if not utils.check_admin(self.bot, ctx):
-            return
         code = code.strip("` ")
         result = None
 
@@ -65,22 +73,20 @@ class CodeEvaluator(commands.Cog):
             if inspect.isawaitable(result):
                 result = await result
         except Exception as e:
-            await utils.send_message(
+            await ctx.send_message(
                 self.logger,
                 ctx,
                 "```fix\n{}\n```".format(type(e).__name__ + ": " + str(e)),
             )
             return
 
-        await utils.send_message(self.logger, ctx, "```py\n{}\n```".format(result))
+        await ctx.send_message(self.logger, ctx, "```py\n{}\n```".format(result))
 
     @_eval.error
     @_stat.error
     @_listdir.error
     async def default_error(self, ctx: commands.Context, error):
-        await utils.send_message(
+        await ctx.send_message(
             self.logger, ctx, str(error), before="```fix\n", after="\n```"
         )
         raise error
-
-    # TODO: Execute remote sql for debugging

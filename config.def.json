@@ -3,8 +3,13 @@
 ##                      Then DELETE THIS LINES                      ##
 ######################################################################
 {
-    "token":"YOUR_TOKEN_HERE",
+    "token": "YOUR_TOKEN_HERE",
     "db": "db.sqlite",
-    "modules": ["cogs.admin", "cogs.hotswapper", "cogs.usermover", "cogs.neoflex", "cogs.weather"],
+    "modules": [
+        "admin",
+        "usermover",
+        "neoflex",
+        "weather"
+    ],
     "admin_ids": []
 }

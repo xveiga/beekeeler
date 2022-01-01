@@ -3,8 +3,6 @@ import logging
 from discord.ext import commands
 from discord import VoiceChannel
 
-from cogs import utils
-
 
 def setup(bot):
     bot.add_cog(UserMover(bot))
@@ -24,8 +22,6 @@ class UserMover(commands.Cog):
         arg2: VoiceChannel = None,
     ):
         """Move all users from a voice channel to another"""
-        # if not await utils.check_cc(self.bot, ctx):
-        #     return
 
         # Arg parsing
         if arg1 and arg2:
@@ -35,7 +31,7 @@ class UserMover(commands.Cog):
             # Source is issuer's current channel if it exists
             vc = ctx.author.voice
             if vc is None:
-                await utils.send_message(
+                await ctx.send_message(
                     self.logger,
                     ctx,
                     "You are not in a *voice channel*, you must specify **both** *source* and *destination*: `move <source> <destination>`",
@@ -44,7 +40,7 @@ class UserMover(commands.Cog):
             src = vc.channel
             dest = arg1
         else:
-            await utils.send_message(
+            await ctx.send_message(
                 self.logger,
                 ctx,
                 "Wrong arguments. Usage: `move <source> <destination>`",
@@ -53,7 +49,7 @@ class UserMover(commands.Cog):
 
         # Check if source and destinations are the same
         if src.id == dest.id:
-            await utils.send_message(
+            await ctx.send_message(
                 self.logger,
                 ctx,
                 "Already in {0}".format(src.mention),
@@ -65,7 +61,7 @@ class UserMover(commands.Cog):
         for user in src.members:
             await user.move_to(dest)
 
-        await utils.send_message(
+        await ctx.send_message(
             self.logger,
             ctx,
             "Moved **{0}** users from {1} to {2}".format(
@@ -75,5 +71,5 @@ class UserMover(commands.Cog):
 
     @move_channel_users.error
     async def move_channel_users_error(self, ctx: commands.Context, exception):
-        await utils.send_message(self.logger, ctx, str(exception))
+        await ctx.send_message(self.logger, ctx, str(exception))
         raise exception

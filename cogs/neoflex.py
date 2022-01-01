@@ -6,8 +6,6 @@ __copyright__ = "Copyright 2021, Galiza. Free as-in-freedom use :)"
 import logging
 
 from discord.ext import commands
-from discord import Embed
-from cogs import utils
 from os import popen
 from os.path import exists
 
@@ -37,4 +35,4 @@ class Neoflex(commands.Cog):
             if exists("/usr/bin/neofetch")
             else "```diff\n- Neofetch is not available -\n```"
         )
-        await utils.send_message(self.logger, ctx, message)
+        await ctx.send_message(self.logger, ctx, message)
