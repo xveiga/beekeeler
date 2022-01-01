@@ -1,6 +1,4 @@
 import asyncio
-import json
-import sys
 import datetime
 from typing import OrderedDict
 import logging
@@ -9,7 +7,8 @@ import logging.handlers
 from discord import Intents
 from discord.ext import commands
 
-from database.backend.sqlite import SQLiteBotDB
+from cogs import utils
+from database.dao.guild import BotGuild
 
 try:
     import uvloop
@@ -84,6 +83,29 @@ class Bot(commands.Bot):
     async def invalidate_prefix(self, gid: int):
         self.prefixes.pop(gid, None)
 
+    async def _fetch_guild_changes(self):
+        remote_guilds = await self.fetch_guilds(limit=200).flatten()
+        local_guilds = await self.db.get_guilds()
+
+        added, removed, persistent = await utils.local_remote_compare(
+            local_guilds, remote_guilds, lambda l, r: l.gid == r.id
+        )
+
+        # Add new guilds
+        for g in added:
+            await self.db.add_guild(BotGuild(g.id, g.name))
+            self.logger.debug('Added guild "{}"'.format(g.name))
+
+        # Remove old guilds
+        for g in removed:
+            await self.db.remove_guild(g.gid)
+            self.logger.debug('Removed guild "{}"'.format(g.name))
+
+        for g in await self.db.get_guilds():
+            # Check control channel still exists
+            if self.get_channel(g.control_channel) is None:
+                await self.db.set_guild_cc(g.gid, None)
+
     async def _open_db(self):
         if self.db.is_open():
             return
@@ -109,6 +131,7 @@ class Bot(commands.Bot):
                 self.user.id,
             )
         )
+        await self._fetch_guild_changes()
 
     def run(self, *args, **kwargs):
         self.logger.info("Database: " + str(self.db.get_uri()))
@@ -118,54 +141,3 @@ class Bot(commands.Bot):
         loop = asyncio.new_event_loop()
         self.logger.info("Gracefully closing database")
         loop.run_until_complete(self.db.close())
-
-
-def main(config_file):
-    # Setup logging
-    logfmt = (
-        "[%(asctime)s] %(levelname)s - %(name)s (%(filename)s:%(lineno)d): %(message)s"
-    )
-    datefmt = "%d/%m/%Y %H:%M:%S"
-    logging.basicConfig(
-        level=logging.DEBUG,
-        # filename="bot.log",
-        encoding="utf-8",
-        format=logfmt,
-        datefmt=datefmt,
-    )
-    root_log = logging.getLogger()
-    stdout_handler = logging.StreamHandler(sys.stdout)
-    stdout_handler.setLevel(logging.DEBUG)
-    stdout_handler.setFormatter(logging.Formatter(fmt=logfmt, datefmt=datefmt))
-    file_handler = logging.handlers.TimedRotatingFileHandler(
-        filename="bot.log", when="D", backupCount=7
-    )
-    file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(logging.Formatter(fmt=logfmt, datefmt=datefmt))
-    root_log.addHandler(stdout_handler)
-    root_log.addHandler(file_handler)
-
-    # Load config file
-    try:
-        with open(config_file, "rt") as file:
-            config = json.load(file)
-    except Exception as ex:
-        logging.log.critical(
-            "Unable to read config file " + config_file + ": " + str(ex)
-        )
-        raise SystemExit from ex
-
-    # Initialize database (sqlite implementation)
-    db = SQLiteBotDB(config["db"])
-    bot = Bot(config["modules"], db, config)
-
-    # Run
-    bot.run(config["token"])
-
-
-if __name__ == "__main__":
-    if len(sys.argv) == 2:
-        main(sys.argv[1])
-    else:
-        print("Reading config.json")
-        main("config.json")

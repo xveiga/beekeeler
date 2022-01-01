@@ -23,6 +23,7 @@ class UserMover(commands.Cog):
         arg1: VoiceChannel = None,
         arg2: VoiceChannel = None,
     ):
+        """Move all users from a voice channel to another"""
         # if not await utils.check_cc(self.bot, ctx):
         #     return
 

@@ -28,7 +28,7 @@ class HotSwapper(commands.Cog):
             after="*",
         )
 
-    @commands.command()
+    @commands.command(hidden=True)
     async def load(self, ctx: commands.Context, extension: str):
         if not utils.check_admin(self.bot, ctx):
             return
@@ -36,7 +36,7 @@ class HotSwapper(commands.Cog):
         self.logger.info("Load extension " + str(extension))
         await ctx.message.add_reaction("\N{THUMBS UP SIGN}")
 
-    @commands.command()
+    @commands.command(hidden=True)
     async def reload(
         self, ctx: commands.Context, extension: typing.Optional[str] = None
     ):
@@ -56,7 +56,7 @@ class HotSwapper(commands.Cog):
             self.bot.reload_extension(extension)
             await ctx.message.add_reaction("\N{THUMBS UP SIGN}")
 
-    @commands.command()
+    @commands.command(hidden=True)
     async def unload(self, ctx: commands.Context, extension: str):
         if not utils.check_admin(self.bot, ctx):
             return
