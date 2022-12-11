@@ -85,7 +85,7 @@ class Beekeeler(commands.Bot):
         self.prefixes.pop(gid, None)
 
     async def _fetch_guild_changes(self):
-        remote_guilds = await self.fetch_guilds(limit=200).flatten()
+        remote_guilds = [i async for i in self.fetch_guilds(limit=200)]
         local_guilds = await self.db.get_guilds()
 
         added, removed, persistent = await local_remote_compare(
@@ -125,6 +125,10 @@ class Beekeeler(commands.Bot):
             )
             raise SystemExit from exception
 
+    async def setup_hook(self):
+        self.logger.info("Opening database: " + str(self.db.get_uri()))
+        await self._open_db()
+
     async def on_ready(self):
         self.logger.info(
             "Logged in as {0}#{1} (app name: {2}, id: {3})".format(
@@ -142,8 +146,6 @@ class Beekeeler(commands.Bot):
         # return await super().process_commands(message)
 
     def run(self, *args, **kwargs):
-        self.logger.info("Opening database: " + str(self.db.get_uri()))
-        self.loop.run_until_complete(self._open_db())
         self.upstamp = datetime.datetime.utcnow()
         super().run(*args, **kwargs)
         loop = asyncio.new_event_loop()
